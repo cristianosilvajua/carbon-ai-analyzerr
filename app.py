@@ -1,8 +1,7 @@
 import streamlit as st
-import PyPDF2
-import openai
+from openai import OpenAI  # ← FORMA NOVA!
 import re
-import os
+from pypdf import PdfReader
 
 # Configuração da página
 st.set_page_config(page_title="Carbon Due Diligence AI", page_icon="🌳")
@@ -19,10 +18,10 @@ with st.sidebar:
     st.markdown("---")
     st.info("Sua chave não é salva e some quando você fecha a página.")
 
-# Funções do sistema (MESMO CÓDIGO do script anterior)
+# Função para extrair PDF
 def extrair_texto_pdf(pdf_file):
     try:
-        leitor = PyPDF2.PdfReader(pdf_file)
+        leitor = PdfReader(pdf_file)
         texto_total = ""
         for pagina in leitor.pages:
             texto = pagina.extract_text()
@@ -30,6 +29,7 @@ def extrair_texto_pdf(pdf_file):
                 texto_total += texto + "\n"
         return texto_total if texto_total else None
     except Exception as e:
+        st.error(f"Erro ao ler PDF: {str(e)}")
         return None
 
 def encontrar_secao_adicionalidade(texto):
@@ -50,60 +50,51 @@ uploaded_file = st.file_uploader("Escolha o arquivo PDF do projeto", type="pdf")
 
 if uploaded_file is not None and api_key:
     
-    # Mostra que está processando
     with st.spinner("🔍 Analisando o documento..."):
         
-        # Extrai texto do PDF
         texto_completo = extrair_texto_pdf(uploaded_file)
         
         if texto_completo:
-            # Encontra a seção de adicionalidade
             secao_adicionalidade = encontrar_secao_adicionalidade(texto_completo)
             
             if len(secao_adicionalidade) > 100:
                 
-                # Configura a chave da API
-                openai.api_key = api_key
-                
-                # Analisa com a IA
                 try:
+                    # ⭐⭐ FORMA NOVA - OpenAI v1.0.0 ⭐⭐
+                    client = OpenAI(api_key=api_key)  # ← Cria o cliente
+                    
                     prompt = f"""
-                    Você é um especialista em créditos de carbono. Analise a seção de ADICIONALIDADE abaixo e dê um score de 1 a 10 (1=excelente, 10=péssimo).
+                    Analise esta seção de ADICIONALIDADE de um projeto de carbono e responda em PORTUGUÊS:
 
-                    CRITÉRIOS:
-                    - O projeto prova que NÃO existiria sem os créditos?
-                    - A análise financeira é robusta?
-                    - As barreiras são bem explicadas?
+                    TEXTO: {secao_adicionalidade[:3000]}
 
-                    TEXTO:
-                    {secao_adicionalidade[:3000]}
-
-                    RESPONDA EM PORTUGUÊS NO FORMATO:
-                    Score: X/10
-                    Pontos Fortes: 
+                    FORMATO DA RESPOSTA:
+                    **Score:** X/10
+                    **Pontos Fortes:** 
                     - ...
-                    Pontos Fracos:
+                    **Pontos Fracos:**
                     - ...
-                    Recomendação: [APROVAR/ANALISAR MAIS/REJEITAR]
+                    **Recomendação:** [APROVAR/ANALISAR MAIS/REJEITAR]
                     """
                     
-                    resposta = openai.ChatCompletion.create(
+                    # ⭐⭐ FORMA NOVA de chamar a API ⭐⭐
+                    resposta = client.chat.completions.create(
                         model="gpt-3.5-turbo",
                         messages=[{"role": "user", "content": prompt}],
                         temperature=0.1
                     )
                     
+                    # ⭐⭐ FORMA NOVA de pegar a resposta ⭐⭐
                     resultado = resposta.choices[0].message.content
                     
-                    # Mostra os resultados
                     st.success("✅ Análise concluída!")
                     st.subheader("📊 Resultado:")
-                    st.write(resultado)
+                    st.markdown(resultado)
                     
                     # Mostra um resumo visual do score
-                    if "Score:" in resultado:
-                        score_texto = resultado.split("Score:")[1].split("/")[0].strip()
+                    if "**Score:**" in resultado:
                         try:
+                            score_texto = resultado.split("**Score:**")[1].split("/")[0].strip()
                             score = int(score_texto)
                             if score <= 3:
                                 st.balloons()
@@ -118,26 +109,20 @@ if uploaded_file is not None and api_key:
                 except Exception as e:
                     st.error(f"Erro na análise: {str(e)}")
             else:
-                st.error("Não foi possível encontrar a seção de adicionalidade no documento.")
+                st.error("Seção de adicionalidade não encontrada.")
         else:
-            st.error("Não foi possível ler o PDF. O arquivo pode estar corrompido ou ser uma imagem.")
+            st.error("Não foi possível ler o PDF.")
 
 elif uploaded_file and not api_key:
-    st.warning("⚠️ Por favor, cole sua OpenAI API Key na sidebar")
+    st.warning("⚠️ Cole sua OpenAI API Key na sidebar")
 
 else:
-    # Instruções quando não há arquivo
     st.markdown("""
     ### 🤔 Como usar:
-    1. **Obtenha uma API Key** da OpenAI (link na sidebar)
-    2. **Cole a API Key** no campo à esquerda
+    1. **Obtenha uma API Key** da OpenAI
+    2. **Cole a API Key** na sidebar
     3. **Faça upload do PDD** em PDF
     4. **Receba a análise em segundos**
-    
-    ### 📈 O que você recebe:
-    - ✅ **Score de risco** (1-10)
-    - ✅ **Pontos fortes e fracos**
-    - ✅ **Recomendação final**
     
     *Exemplo de PDDs para testar: [Verra Registry](https://registry.verra.org/app/search/VCS)*
     """)
